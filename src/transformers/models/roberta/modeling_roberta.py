@@ -548,7 +548,7 @@ class RobertaEncoder(nn.Module):
 
         # project embeddings (before first layer)
         if self.embedding_projection_flag:
-            self.embedding_project(hidden_states, 'de', 0)
+            hidden_states = self.embedding_project(hidden_states, 'de', 0)
 
         for i, layer_module in enumerate(self.layer):
             if output_hidden_states:
@@ -602,7 +602,7 @@ class RobertaEncoder(nn.Module):
 
             # project hidden states
             if layer_module.projection_flag:
-                self.layer_project(hidden_states, 'de', i)
+                hidden_states = self.layer_project(hidden_states, 'de', i)
             
 
         if output_hidden_states:
