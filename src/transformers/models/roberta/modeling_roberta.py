@@ -56,6 +56,10 @@ from ...utils import (
 )
 from .configuration_roberta import RobertaConfig
 
+import numpy as np
+import torch
+import copy
+
 
 logger = logging.get_logger(__name__)
 
