@@ -415,6 +415,11 @@ class RobertaLayer(nn.Module):
             self.crossattention = RobertaAttention(config, position_embedding_type="absolute", location_key="cross")
         self.intermediate = RobertaIntermediate(config)
         self.output = RobertaOutput(config)
+        # layer projections
+        self.layer_projections = {}
+        self.layer_projections_shifts = {}
+        self.projection_flag = False
+
 
     def forward(
         self,
@@ -486,6 +491,7 @@ class RobertaLayer(nn.Module):
         return layer_output
 
 
+
 # Copied from transformers.models.bert.modeling_bert.BertEncoder with Bert->Roberta
 class RobertaEncoder(nn.Module):
     def __init__(self, config):
@@ -493,6 +499,29 @@ class RobertaEncoder(nn.Module):
         self.config = config
         self.layer = nn.ModuleList([RobertaLayer(config) for _ in range(config.num_hidden_layers)])
         self.gradient_checkpointing = False
+        # embedding projections
+        self.embedding_projections = {}
+        self.embedding_projections_shifts = {}
+        self.embedding_projection_flag = False
+
+
+    def embedding_project(self, inputs, lang):
+        # batch norm here
+        projection = self.embedding_projections[lang].to(inputs.device)
+        projection_shift = self.embedding_projections_shifts[lang].to(inputs.device)
+        inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
+        # fixed shift here
+        return inputs
+
+    
+    def layer_project(self, inputs, lang, layer_i):
+        # batch norm here
+        projection = self.layer[layer_i].layer_projections[lang].to(inputs.device)
+        projection_shift = self.layer[layer_i].layer_projections_shifts[lang].to(inputs.device)
+        inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
+        # fixed shift here
+        return inputs
+
 
     def forward(
         self,
@@ -512,6 +541,11 @@ class RobertaEncoder(nn.Module):
         all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
 
         next_decoder_cache = () if use_cache else None
+
+        # project embeddings (before first layer)
+        if self.embedding_projection_flag:
+            self.embedding_project(hidden_states, 'de', 0)
+
         for i, layer_module in enumerate(self.layer):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
@@ -561,6 +595,11 @@ class RobertaEncoder(nn.Module):
                 all_self_attentions = all_self_attentions + (layer_outputs[1],)
                 if self.config.add_cross_attention:
                     all_cross_attentions = all_cross_attentions + (layer_outputs[2],)
+
+            # project hidden states
+            if layer_module.projection_flag:
+                self.layer_project(hidden_states, 'de', i)
+            
 
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
