@@ -1124,6 +1124,8 @@ class RobertaForMaskedLM(BertModelWithHeadsAdaptersMixin, RobertaPreTrainedModel
         # Initialize weights and apply final processing
         self.post_init()
 
+        self.src_lang = 'en'
+
 
     def get_output_embeddings(self):
         return self.lm_head.decoder
