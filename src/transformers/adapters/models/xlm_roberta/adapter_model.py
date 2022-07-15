@@ -137,7 +137,7 @@ class XLMRobertaModelWithHeads(RobertaModelWithHeads):
     config_class = XLMRobertaConfig
 
 
-class XLMRobertaForMaskedLM(RobertaForMaskedLM):
+class RobertaForMaskedLMProject(RobertaForMaskedLM):
     """
     This class overrides :class:`~transformers.RobertaModelWithHeads`. Please check the superclass for the appropriate
     documentation alongside usage examples.
