@@ -30,7 +30,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
 
     def activate_embedding_projection(self):
         if not self.roberta.encoder.embedding_projection_flag:
-            elf.roberta.encoder.embedding_projection_flag = True
+            self.roberta.encoder.embedding_projection_flag = True
 
     def activate_layer_projections(self, layers: list):
         for layer_i in layers:
@@ -52,6 +52,8 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
         if subspace_dir[-1] != '/': subspace_dir += '/'
 
         variance_accounted = 0.9
+        num_layers = self.roberta.config.num_hidden_layers
+        dim_size = self.roberta.config.hidden_size
 
         # compute projections
         projection_dict = {}
@@ -63,9 +65,6 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
             projections = []
             means_a = []
             means_b = []
-
-            num_layers = self.roberta.config.num_hidden_layers
-            dim_size = self.roberta.config.hidden_size
 
             for layer_i in range(self.config.num_hidden_layers+1):
                 mean_a = np.load(subspace_dir+self.src_lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
@@ -106,15 +105,15 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
     def set_layer_projections(self, projection_dict, lang_list, means_a_dict, means_b_dict):
         for lang in lang_list:
             projection, projection_shift = self.compute_projection(projection_dict, means_a_dict, means_b_dict, lang, 0) # 0 for embedding layer projections
-            self.roberta.encoder.embedding_projections[lang] = copy.deepcopy(projection)
-            self.roberta.encoder.embedding_projections_shifts[lang] = copy.deepcopy(projection_shift)
+            self.roberta.encoder.embedding_projections[lang] = projection #copy.deepcopy(projection)
+            self.roberta.encoder.embedding_projections_shifts[lang] = projection_shift
             # add shifts here
 
         for lang in lang_list:
             for layer_i in range(1, self.config.num_hidden_layers+1):
                 projection, projection_shift = self.compute_projection(projection_dict, means_a_dict, means_b_dict, lang, layer_i)
-                self.roberta.encoder.layer[layer_i-1].layer_projections[lang] = copy.deepcopy(projection)
-                self.roberta.encoder.layer[layer_i-1].layer_projections_shifts[lang] = copy.deepcopy(projection_shift)
+                self.roberta.encoder.layer[layer_i-1].layer_projections[lang] = projection
+                self.roberta.encoder.layer[layer_i-1].layer_projections_shifts[lang] = projection_shift
                 # add shifts here
 
 
@@ -126,6 +125,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
         projection_shift = mean_b - torch.matmul(projection, mean_a)
         projection_shift = projection_shift.reshape(1, 1, dim_size)
         return projection, projection_shift
+
 
 
 @add_start_docstrings(
