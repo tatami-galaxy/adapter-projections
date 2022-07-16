@@ -38,7 +38,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
 
 
     def disable_adapter_projection_stack(self):
-        for layer_i in self.config.num_hidden_layers:
+        for layer_i in range(self.config.num_hidden_layers):
             if self.roberta.encoder.layer[layer_i].output.projection_flag:
                 self.roberta.encoder.layer[layer_i].output.projection_flag = False
 

@@ -1223,7 +1223,7 @@ class RobertaForMaskedLM(BertModelWithHeadsAdaptersMixin, RobertaPreTrainedModel
             elf.roberta.encoder.embedding_projection_flag = False
 
     def disable_layer_projections(self, layers: list):
-        for layer_i in layers:
+        for layer_i in range(self.config.num_hidden_layers):
             if self.roberta.encoder.layer[layer_i].projection_flag:
                 self.roberta.encoder.layer[layer_i].projection_flag = False
 
