@@ -208,12 +208,14 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 )
             # Case 5: We have a single adapter which is part of this module -> forward pass
             elif adapter_stack_layer in self.adapters:
-                adapter_layer = self.adapters[adapter_stack_layer]
-                hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
 
+                # projection
                 if adapter_stack_layer == self.task_adapter and self.projection_flag:
                     hidden_states = self.project(hidden_states)
-
+                    input_tensor = self.project(input_tensor)
+                    
+                adapter_layer = self.adapters[adapter_stack_layer]
+                hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
                 hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
                 # as this stack might be part of a fusion block, return the adapter up-projection output here
                 # together with the final output (with potential residuals & norms) if we reached the last block of the stack
