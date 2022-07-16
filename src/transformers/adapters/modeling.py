@@ -137,14 +137,14 @@ class Adapter(nn.Module):
         """
         query = None
 
-        if self.residual_before_ln:
+        if self.residual_before_ln: # stack adapter
             residual = hidden_states
 
         if fusion_config is not None and fusion_config["query_before_ln"]:
             query = hidden_states
 
-        if self.original_ln_before:
-            if layer_norm:
+        if self.original_ln_before: # stack adapter
+            if layer_norm:  # stack adapter
                 hidden_states = layer_norm(hidden_states + input_tensor)
             else:
                 hidden_states = hidden_states + input_tensor
@@ -173,7 +173,7 @@ class Adapter(nn.Module):
             output = self.adapter_norm_after(output)
 
         # if residual should be applied after layer norm, apply it here
-        if not self.adapter_residual_before_ln:
+        if not self.adapter_residual_before_ln: # stack adapter
             output = output + residual_input
 
         return output, down, up
@@ -192,8 +192,8 @@ class Adapter(nn.Module):
         Returns:
             The modified hidden states.
         """
-        if self.original_ln_after:
-            if layer_norm:
+        if self.original_ln_after:  # stack adapter
+            if layer_norm:  # stack adapter
                 hidden_states = layer_norm(hidden_states + input_tensor)
             else:
                 hidden_states = hidden_states + input_tensor

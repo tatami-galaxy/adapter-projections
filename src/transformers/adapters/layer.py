@@ -73,6 +73,13 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         super().__init__()
         self.location_key = location_key
         self.config = config
+        # projection
+        self.task_adapter = None
+        self.projection_flag = False
+        self.proj_lang = None
+        self.projections = {}
+        self.projections_shifts = {}
+
 
     def _init_adapter_modules(self):
         self.adapters = nn.ModuleDict(dict())
@@ -170,6 +177,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         """
         Forwards the given input through the given stack of adapters.
         """
+        # hidden_states = intermediate output, input_tensor = attention output
         for i, adapter_stack_layer in enumerate(adapter_setup):
             # Break if setup is too deep
             if isinstance(adapter_stack_layer, AdapterCompositionBlock) and lvl >= 1:
@@ -202,16 +210,30 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
             elif adapter_stack_layer in self.adapters:
                 adapter_layer = self.adapters[adapter_stack_layer]
                 hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
+
+                if adapter_stack_layer == self.task_adapter and self.projection_flag:
+                    hidden_states = self.project(hidden_states)
+
                 hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
                 # as this stack might be part of a fusion block, return the adapter up-projection output here
                 # together with the final output (with potential residuals & norms) if we reached the last block of the stack
-                if i == len(adapter_setup) - 1:
+                if i == len(adapter_setup) - 1: # after task adapter
                     return hidden_states, up, input_tensor
             # Case X: No adapter which is part of this module -> ignore
 
         # If we got here, we either had another nested composition block
         # or no adapter was found. In both cases, we don't need to set the second return value for fusion
         return hidden_states, None, input_tensor
+
+
+    def project(self, inputs):
+        # batch norm here
+        projection = self.projections[self.proj_lang].to(inputs.device)
+        projection_shift = self.projections_shifts[self.proj_lang].to(inputs.device)
+        inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
+        # fixed shift here
+        return inputs
+
 
     def adapter_fusion(self, adapter_setup: Fuse, hidden_states, input_tensor, layer_norm, lvl=0):
         """
@@ -457,6 +479,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         """
         Called for each forward pass through adapters.
         """
+        # hidden_states = intermediate output, input_tensor = attention output
         adapter_setup = self.get_active_setup(self.adapters)
         if adapter_setup is not None:
             input_hidden_states = hidden_states

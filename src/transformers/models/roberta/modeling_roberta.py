@@ -399,6 +399,7 @@ class RobertaOutput(BertOutputAdaptersMixin, nn.Module):
     def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
+        # hidden_states = intermediate output, input_tensor = attention output
         hidden_states = self.adapter_layer_forward(hidden_states, input_tensor, self.LayerNorm)
         return hidden_states
 
@@ -422,6 +423,7 @@ class RobertaLayer(nn.Module):
         self.layer_projections = {}
         self.layer_projections_shifts = {}
         self.projection_flag = False
+        self.proj_lang = None
 
 
     def forward(
@@ -506,6 +508,8 @@ class RobertaEncoder(nn.Module):
         self.embedding_projections = {}
         self.embedding_projections_shifts = {}
         self.embedding_projection_flag = False
+        self.lang_list = []
+        self.proj_lang = None
 
 
     def embedding_project(self, inputs, lang):
@@ -547,7 +551,7 @@ class RobertaEncoder(nn.Module):
 
         # project embeddings (before first layer)
         if self.embedding_projection_flag:
-            hidden_states = self.embedding_project(hidden_states, 'de')
+            hidden_states = self.embedding_project(hidden_states, self.proj_lang)
 
         for i, layer_module in enumerate(self.layer):
             if output_hidden_states:
@@ -601,7 +605,7 @@ class RobertaEncoder(nn.Module):
 
             # project hidden states
             if layer_module.projection_flag:
-                hidden_states = self.layer_project(hidden_states, 'de', i)
+                hidden_states = self.layer_project(hidden_states, layer_module.proj_lang, i)
             
 
         if output_hidden_states:
