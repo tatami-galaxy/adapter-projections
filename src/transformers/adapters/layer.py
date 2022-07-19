@@ -232,7 +232,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         # batch norm here
         projection = self.projections[self.proj_lang].to(inputs.device)
         projection_shift = self.projections_shifts[self.proj_lang].to(inputs.device)
-        inputs = torch.einsum('ij,bsj->bsi', projection, inputs) #+ projection_shift
+        inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
         # fixed shift here
         return inputs
 
