@@ -73,10 +73,15 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         super().__init__()
         self.location_key = location_key
         self.config = config
-        # projection
+        # adapter names
         self.task_adapter = None
-        self.projection_flag = False
+        self.parallel_adapter = None
+        # flags
+        self.stack_projection_flag = False
+        self.parallel_projection_flag = False
+        # lang
         self.proj_lang = None
+        # projections
         self.projections = {}
         self.projections_shifts = {}
 
@@ -209,10 +214,21 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
             # Case 5: We have a single adapter which is part of this module -> forward pass
             elif adapter_stack_layer in self.adapters:
 
-                # projection
-                if adapter_stack_layer == self.task_adapter and self.projection_flag:
+                # stack projection
+                if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
                     hidden_states = self.project(hidden_states)
-                    input_tensor = self.project(input_tensor)
+                    #input_tensor = self.project(input_tensor)
+
+                # parallel projection
+                elif adapter_stack_layer == self.parallel_adapter and self.parallel_projection_flag:
+                    p_hidden_states = self.project(hidden_states)
+                    p_input_tensor = self.project(input_tensor)
+
+                    adapter_layer = self.adapters[self.parallel_adapter]
+                    p_hidden_states, _, residual = adapter_layer.pre_forward(p_hidden_states, p_input_tensor, layer_norm)
+                    p_hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
+
+                
                     
                 adapter_layer = self.adapters[adapter_stack_layer]
                 hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)

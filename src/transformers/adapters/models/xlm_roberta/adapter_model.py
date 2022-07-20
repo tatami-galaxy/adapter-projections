@@ -31,17 +31,27 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
 
 
     def activate_adapter_projection_stack(self, adapter_name: str, layer_i: int, lang: str):
-        self.roberta.encoder.layer[layer_i].output.projection_flag = True
+        self.roberta.encoder.layer[layer_i].output.stack_projection_flag = True
         self.roberta.encoder.layer[layer_i].output.task_adapter = adapter_name
         self.roberta.encoder.layer[layer_i].output.proj_lang = lang
 
 
+    def activate_adapter_projection_parallel(self, adapter_name: str, lang: str):
+        self.roberta.encoder.layer[layer_i].output.parallel_projection_flag = True
+        self.roberta.encoder.layer[layer_i].output.parallel_adapter = adapter_name
+        self.roberta.encoder.layer[layer_i].output.proj_lang = lang
+
 
     def disable_adapter_projection_stack(self):
         for layer_i in range(self.config.num_hidden_layers):
-            if self.roberta.encoder.layer[layer_i].output.projection_flag:
-                self.roberta.encoder.layer[layer_i].output.projection_flag = False
+            if self.roberta.encoder.layer[layer_i].output.stack_projection_flag:
+                self.roberta.encoder.layer[layer_i].output.stack_projection_flag = False
 
+
+    def disable_adapter_projection_parallel(self):
+        for layer_i in range(self.config.num_hidden_layers):
+            if self.roberta.encoder.layer[layer_i].output.parallel_projection_flag:
+                self.roberta.encoder.layer[layer_i].output.parallel_projection_flag = False
 
 
     def disable_embedding_projection(self):

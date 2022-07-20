@@ -607,13 +607,6 @@ class RobertaEncoder(nn.Module):
             # project hidden states
             if layer_module.projection_flag:
                 hidden_states = self.layer_project(hidden_states, layer_module.proj_lang, i)
-
-
-            # plot embeddings here
-            #projection = layer_module.output.projections['de']
-            #proj = hidden_states - torch.einsum('ij,bsj->bsi', layer_module.output.projections['de'], hidden_states) - layer_module.output.projections_shifts['de']
-            #avg_dist = torch.sum(torch.linalg.vector_norm(proj, dim=2))/(proj.shape[0]*proj.shape[1])
-            #print(avg_dist)
             
 
         if output_hidden_states:
