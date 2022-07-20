@@ -225,6 +225,8 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 # parallel projection before task adapter
                 if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag: # check if this is before task adapter
                     p_hidden_states = self.project(hidden_states)
+                    print(p_hidden_states.device)
+                    print(input_tensor.device)
 
                     p_adapter_layer = self.adapters[self.parallel_adapter]
                     p_hidden_states, _, residual = p_adapter_layer.pre_forward(p_hidden_states, input_tensor, layer_norm)
