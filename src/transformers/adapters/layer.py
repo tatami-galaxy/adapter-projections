@@ -84,6 +84,9 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         # projections
         self.projections = {}
         self.projections_shifts = {}
+        # loss
+        self.loss_func = nn.CosineEmbeddingLoss()
+        self.recon_loss = None
 
 
     def _init_adapter_modules(self):
@@ -219,20 +222,27 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                     hidden_states = self.project(hidden_states)
                     #input_tensor = self.project(input_tensor)
 
-                # parallel projection
-                elif adapter_stack_layer == self.parallel_adapter and self.parallel_projection_flag:
+                # parallel projection before task adapter
+                if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag: # check if this is before task adapter
                     p_hidden_states = self.project(hidden_states)
-                    p_input_tensor = self.project(input_tensor)
 
-                    adapter_layer = self.adapters[self.parallel_adapter]
-                    p_hidden_states, _, residual = adapter_layer.pre_forward(p_hidden_states, p_input_tensor, layer_norm)
-                    p_hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
+                    p_adapter_layer = self.adapters[self.parallel_adapter]
+                    p_hidden_states, _, residual = p_adapter_layer.pre_forward(p_hidden_states, input_tensor, layer_norm)
+                    p_hidden_states, _, up = p_adapter_layer(hidden_states, residual_input=residual)
 
                 
-                    
+                # lang or task adapter    
                 adapter_layer = self.adapters[adapter_stack_layer]
                 hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
                 hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
+
+                # parallel projection after task adapter
+                if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag:
+                    # reconstruction loss between p_hidden_states and self.project(hidden_states)
+                    p_hidden_states = p_hidden_states.view(-1, 768)
+                    proj = self.project(hidden_states).view(-1, 768)
+                    self.recon_loss = self.loss_func(p_hidden_states, proj, torch.ones(hidden_states.shape[0]*hidden_states.shape[1]))
+
                 # as this stack might be part of a fusion block, return the adapter up-projection output here
                 # together with the final output (with potential residuals & norms) if we reached the last block of the stack
                 if i == len(adapter_setup) - 1: # after task adapter
