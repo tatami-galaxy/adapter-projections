@@ -30,10 +30,12 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
             self.roberta.encoder.proj_lang = lang
 
 
-    def activate_adapter_projection_stack(self, adapter_name: str, layer_i: int, lang: str):
+    def activate_adapter_projection_stack(self, adapter_name: str, layer_i: int, lang: str, prob: float):
         self.roberta.encoder.layer[layer_i].output.stack_projection_flag = True
         self.roberta.encoder.layer[layer_i].output.task_adapter = adapter_name
         self.roberta.encoder.layer[layer_i].output.proj_lang = lang
+        self.roberta.encoder.layer[layer_i].output.prob = prob 
+        self.roberta.encoder.layer[layer_i].output.src_lang = self.src_lang
 
 
     def activate_adapter_projection_parallel(self, task_adapter_name: str, parallel_adapter_name: str, lang: str):

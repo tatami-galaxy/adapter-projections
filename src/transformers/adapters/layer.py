@@ -3,6 +3,7 @@ from typing import List, Mapping, Union
 
 import torch
 from torch import nn
+import random
 
 from .composition import AdapterCompositionBlock, BatchSplit, Fuse, Parallel, Split, Stack
 from .configuration import AdapterConfig
@@ -81,12 +82,15 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         self.parallel_projection_flag = False
         # lang
         self.proj_lang = None
+        self.src_lang = None
         # projections
         self.projections = {}
         self.projections_shifts = {}
         # loss
         self.loss_func = nn.CosineEmbeddingLoss()
         self.recon_loss = None
+        # probability
+        self.prob = 1.0
 
 
     def _init_adapter_modules(self):
@@ -219,12 +223,13 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
 
                 # stack projection
                 if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
-                    hidden_states = self.project(hidden_states)
+                    if random.uniform(0, 1) <= self.prob:
+                        hidden_states = self.project(hidden_states, self.proj_lang)
                     #input_tensor = self.project(input_tensor)
 
                 # parallel projection before task adapter
                 if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag: # check if this is before task adapter
-                    p_hidden_states = self.para_adapter(self.project(hidden_states), input_tensor, layer_norm)
+                    p_hidden_states = self.para_adapter(self.project(hidden_states, self.proj_lang), input_tensor, layer_norm)
                 
                 # lang or task adapter    
                 adapter_layer = self.adapters[adapter_stack_layer]
@@ -235,7 +240,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag:
                     # reconstruction loss between p_hidden_states and self.project(hidden_states)
                     p_hidden_states = p_hidden_states.view(-1, hidden_states.shape[2])
-                    proj = self.project(hidden_states).view(-1, hidden_states.shape[2])
+                    proj = self.project(hidden_states, self.proj_lang).view(-1, hidden_states.shape[2])
                     labels = torch.ones(hidden_states.shape[0]*hidden_states.shape[1]).to(hidden_states.device)
                     self.recon_loss = self.loss_func(p_hidden_states, proj, labels)
 
@@ -250,10 +255,10 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         return hidden_states, None, input_tensor
 
 
-    def project(self, inputs):
+    def project(self, inputs, lang):
         # batch norm here
-        projection = self.projections[self.proj_lang].to(inputs.device)
-        projection_shift = self.projections_shifts[self.proj_lang].to(inputs.device)
+        projection = self.projections[lang].to(inputs.device)
+        projection_shift = self.projections_shifts[lang].to(inputs.device)
         inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
         # fixed shift here
         return inputs
@@ -264,6 +269,10 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
         hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
         return hidden_states
+
+
+    def compute_recon_loss(self, tensor1, tensor2):
+        pass
 
 
 
