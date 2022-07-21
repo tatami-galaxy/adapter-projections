@@ -224,12 +224,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
 
                 # parallel projection before task adapter
                 if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag: # check if this is before task adapter
-                    p_hidden_states = self.project(hidden_states)
-
-                    p_adapter_layer = self.adapters[self.parallel_adapter]
-                    p_hidden_states, _, residual = p_adapter_layer.pre_forward(p_hidden_states, input_tensor, layer_norm)
-                    p_hidden_states, _, up = p_adapter_layer(hidden_states, residual_input=residual)
-
+                    p_hidden_states = self.para_adapter(self.project(hidden_states), input_tensor, layer_norm)
                 
                 # lang or task adapter    
                 adapter_layer = self.adapters[adapter_stack_layer]
@@ -239,8 +234,8 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 # parallel projection after task adapter
                 if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag:
                     # reconstruction loss between p_hidden_states and self.project(hidden_states)
-                    p_hidden_states = p_hidden_states.view(-1, 768)
-                    proj = self.project(hidden_states).view(-1, 768)
+                    p_hidden_states = p_hidden_states.view(-1, hidden_states.shape[2])
+                    proj = self.project(hidden_states).view(-1, hidden_states.shape[2])
                     labels = torch.ones(hidden_states.shape[0]*hidden_states.shape[1]).to(hidden_states.device)
                     self.recon_loss = self.loss_func(p_hidden_states, proj, labels)
 
@@ -262,6 +257,14 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
         # fixed shift here
         return inputs
+
+
+    def para_adapter(self, hidden_states, input_tensor, layer_norm):
+        adapter_layer = self.adapters[self.parallel_adapter]
+        hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
+        hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
+        return hidden_states
+
 
 
     def adapter_fusion(self, adapter_setup: Fuse, hidden_states, input_tensor, layer_norm, lvl=0):
