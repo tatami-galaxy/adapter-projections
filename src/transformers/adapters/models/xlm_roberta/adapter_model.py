@@ -145,9 +145,9 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
 
     def copy_adapters(self, src_adapter, tgt_adapter):
         for layer_i in range(self.config.num_hidden_layers):
-            self.roberta.encoder.layer[layer_i].output.adapters.tgt_adapter.adapter_down[0].weight.data = self.roberta.encoder.layer[layer_i].output.adapters.src_adapter.adapter_down[0].weight.data
-            self.roberta.encoder.layer[layer_i].output.adapters.tgt_adapter.adapter_down[0].bias.data = self.roberta.encoder.layer[layer_i].output.adapters.src_adapter.adapter_down[0].bias.data
-            
+            getattr(self.roberta.encoder.layer[layer_i].output.adapters, tgt_adapter).adapter_down[0].weight.data = getattr(self.roberta.encoder.layer[layer_i].output.adapters, src_adapter).adapter_down[0].weight.data
+            getattr(self.roberta.encoder.layer[layer_i].output.adapters, tgt_adapter).adapter_down[0].bias.data = getattr(self.roberta.encoder.layer[layer_i].output.adapters, src_adapter).adapter_down[0].bias.data
+
 
 
 
