@@ -231,10 +231,13 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag: # check if this is before task adapter
                     p_hidden_states = self.para_adapter(self.project(hidden_states, self.proj_lang), input_tensor, layer_norm)
                 
+
+                
                 # lang or task adapter    
                 adapter_layer = self.adapters[adapter_stack_layer]
                 hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
                 hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
+
 
                 # parallel projection after task adapter
                 if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag:
@@ -243,6 +246,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                     proj = self.project(hidden_states, self.proj_lang).view(-1, hidden_states.shape[2])
                     labels = torch.ones(hidden_states.shape[0]*hidden_states.shape[1]).to(hidden_states.device)
                     self.recon_loss = self.loss_func(p_hidden_states, proj, labels)
+
 
                 # as this stack might be part of a fusion block, return the adapter up-projection output here
                 # together with the final output (with potential residuals & norms) if we reached the last block of the stack
