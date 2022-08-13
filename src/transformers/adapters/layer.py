@@ -227,10 +227,12 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                         hidden_states = self.project(hidden_states, self.proj_lang)
                     #input_tensor = self.project(input_tensor)
 
-                # parallel projection before task adapter
+                # parallel projection and parallel adapter
                 if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag: # check if this is before task adapter
-                    p_hidden_states = self.para_adapter(self.project(hidden_states, self.proj_lang), input_tensor, layer_norm)
-                
+                    para_adapter = self.adapters[self.parallel_adapter]
+                    p_hidden_states = self.project(hidden_states, self.proj_lang)
+                    p_hidden_states, _, p_residual = para_adapter.pre_forward(p_hidden_states, input_tensor, layer_norm)
+                    p_hidden_states, _, _ = adapter_layer(p_hidden_states, residual_input=p_residual)
 
                 
                 # lang or task adapter    
