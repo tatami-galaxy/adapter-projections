@@ -238,7 +238,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
                     proj = self.project(hidden_states, self.proj_lang).view(-1, hidden_states.shape[2])
                     labels = torch.ones(hidden_states.shape[0]*hidden_states.shape[1]).to(hidden_states.device)
-                    self.recon_loss = self.loss_func(hidden_states, proj, labels)
+                    self.recon_loss = self.loss_func(hidden_states.view(-1, hidden_states.shape[2]), proj, labels)
 
 
                 # as this stack might be part of a fusion block, return the adapter up-projection output here
