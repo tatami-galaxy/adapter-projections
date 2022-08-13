@@ -275,10 +275,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         return hidden_states
 
 
-    def compute_recon_loss(self, tensor1, tensor2):
-        pass
-
-
 
     def adapter_fusion(self, adapter_setup: Fuse, hidden_states, input_tensor, layer_norm, lvl=0):
         """
