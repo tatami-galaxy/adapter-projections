@@ -227,13 +227,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                         hidden_states = self.project(hidden_states, self.proj_lang)
                     #input_tensor = self.project(input_tensor)
 
-                # parallel projection and parallel adapter
-                if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag: # check if this is before task adapter
-                    para_adapter = self.adapters[self.parallel_adapter]
-                    p_hidden_states = self.project(hidden_states, self.proj_lang)
-                    p_hidden_states, _, p_residual = para_adapter.pre_forward(p_hidden_states, input_tensor, layer_norm)
-                    p_hidden_states, _, _ = adapter_layer(p_hidden_states, residual_input=p_residual)
-
                 
                 # lang or task adapter    
                 adapter_layer = self.adapters[adapter_stack_layer]
@@ -241,11 +234,10 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
 
 
-                # parallel projection after task adapter
-                if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag:
-                    # reconstruction loss between p_hidden_states and self.project(hidden_states)
-                    p_hidden_states = p_hidden_states.view(-1, hidden_states.shape[2])
-                    proj = self.project(hidden_states, self.proj_lang).view(-1, hidden_states.shape[2])
+                # recon loss between task adapter output and its projection
+                if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
+                    p_hidden_states = hidden_states.view(-1, hidden_states.shape[2])
+                    proj = self.project(p_hidden_states, self.proj_lang).view(-1, hidden_states.shape[2])
                     labels = torch.ones(hidden_states.shape[0]*hidden_states.shape[1]).to(hidden_states.device)
                     self.recon_loss = self.loss_func(p_hidden_states, proj, labels)
 
