@@ -80,6 +80,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         # flags
         self.stack_projection_flag = False
         self.parallel_projection_flag = False
+        self.recon_flag = False
         # lang
         self.proj_lang = None
         self.src_lang = None
@@ -235,7 +236,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
 
 
                 # recon loss between task adapter output and its projection
-                if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
+                if adapter_stack_layer == self.task_adapter and self.recon_flag:
                     proj = self.project(hidden_states, self.proj_lang).view(-1, hidden_states.shape[2])
                     labels = torch.ones(hidden_states.shape[0]*hidden_states.shape[1]).to(hidden_states.device)
                     self.recon_loss = self.loss_func(hidden_states.view(-1, hidden_states.shape[2]), proj, labels)
