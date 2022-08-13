@@ -85,6 +85,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
             for layer_i in range(self.config.num_hidden_layers+1):
                 mean_a = np.load(subspace_dir+self.src_lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
                 mean_b = np.load(subspace_dir+self.src_lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
+                #mean_b = np.load(subspace_dir+lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
 
                 means_a.append(mean_a)
                 means_b.append(mean_b)
