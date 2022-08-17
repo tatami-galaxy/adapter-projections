@@ -80,6 +80,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         # flags
         self.stack_projection_flag = False
         self.parallel_projection_flag = False
+        self.recon_flag = False
         # lang
         self.proj_langs = []
         self.src_lang = None
@@ -227,11 +228,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                         hidden_states = self.project(hidden_states, self.proj_lang)
                     #input_tensor = self.project(input_tensor)
 
-                # parallel projection before task adapter
-                if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag: # check if this is before task adapter
-                    p_hidden_states = self.para_adapter(self.project(hidden_states, self.proj_lang), input_tensor, layer_norm)
-                
-
                 
                 # lang or task adapter    
                 adapter_layer = self.adapters[adapter_stack_layer]
@@ -239,13 +235,11 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
 
 
-                # parallel projection after task adapter
-                if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag:
-                    # reconstruction loss between p_hidden_states and self.project(hidden_states)
-                    p_hidden_states = p_hidden_states.view(-1, hidden_states.shape[2])
+                # recon loss between task adapter output and its projection
+                if adapter_stack_layer == self.task_adapter and self.recon_flag:
                     proj = self.project(hidden_states, self.proj_lang).view(-1, hidden_states.shape[2])
                     labels = torch.ones(hidden_states.shape[0]*hidden_states.shape[1]).to(hidden_states.device)
-                    self.recon_loss = self.loss_func(p_hidden_states, proj, labels)
+                    self.recon_loss = self.loss_func(hidden_states.view(-1, hidden_states.shape[2]), proj, labels)
 
 
                 # as this stack might be part of a fusion block, return the adapter up-projection output here
@@ -273,10 +267,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
         hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
         return hidden_states
-
-
-    def compute_recon_loss(self, tensor1, tensor2):
-        pass
 
 
 
