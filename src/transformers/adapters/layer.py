@@ -81,7 +81,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         self.stack_projection_flag = False
         self.parallel_projection_flag = False
         # lang
-        self.proj_lang = None
+        self.proj_langs = []
         self.src_lang = None
         # projections
         self.projections = {}
