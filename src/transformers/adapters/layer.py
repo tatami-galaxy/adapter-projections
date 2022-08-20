@@ -249,13 +249,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         return inputs
 
 
-    def para_adapter(self, hidden_states, input_tensor, layer_norm):
-        adapter_layer = self.adapters[self.parallel_adapter]
-        hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
-        hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
-        return hidden_states
-
-
 
     def adapter_fusion(self, adapter_setup: Fuse, hidden_states, input_tensor, layer_norm, lvl=0):
         """
