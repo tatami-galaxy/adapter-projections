@@ -79,8 +79,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         self.parallel_adapter = None
         # flags
         self.stack_projection_flag = False
-        self.parallel_projection_flag = False
-        self.recon_flag = False
         # lang
         self.proj_langs = []
         self.src_lang = None
@@ -91,7 +89,8 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         self.loss_func = nn.CosineEmbeddingLoss()
         self.recon_loss = None
         # probability
-        self.prob = 1.0
+        self.proj_prob = 1.0
+        self.probs = {}
 
 
     def _init_adapter_modules(self):
@@ -224,8 +223,14 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
 
                 # stack projection
                 if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
-                    if random.uniform(0, 1) <= self.prob:
-                        hidden_states = self.project(hidden_states, self.proj_lang)
+                    if random.uniform(0, 1) <= self.proj_prob:
+                        # select projection language
+                        if random.uniform(0, 1) <= list(self.probs.values())[0]:
+                            proj_lang = list(self.probs.keys())[0]
+                        else:
+                            proj_lang = list(self.probs.keys())[1]
+                        
+                        hidden_states = self.project(hidden_states, proj_lang)
                     #input_tensor = self.project(input_tensor)
 
                 
@@ -233,13 +238,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 adapter_layer = self.adapters[adapter_stack_layer]
                 hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
                 hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
-
-
-                # recon loss between task adapter output and its projection
-                if adapter_stack_layer == self.task_adapter and self.recon_flag:
-                    proj = self.project(hidden_states, self.proj_lang).view(-1, hidden_states.shape[2])
-                    labels = torch.ones(hidden_states.shape[0]*hidden_states.shape[1]).to(hidden_states.device)
-                    self.recon_loss = self.loss_func(hidden_states.view(-1, hidden_states.shape[2]), proj, labels)
 
 
                 # as this stack might be part of a fusion block, return the adapter up-projection output here
