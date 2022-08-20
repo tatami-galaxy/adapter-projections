@@ -76,21 +76,16 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         self.config = config
         # adapter names
         self.task_adapter = None
-        self.parallel_adapter = None
         # flags
         self.stack_projection_flag = False
         # lang
-        self.proj_langs = []
         self.src_lang = None
+        self.proj_lang = None
         # projections
         self.projections = {}
         self.projections_shifts = {}
-        # loss
-        self.loss_func = nn.CosineEmbeddingLoss()
-        self.recon_loss = None
         # probability
         self.proj_prob = 1.0
-        self.probs = {}
 
 
     def _init_adapter_modules(self):
@@ -224,13 +219,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 # stack projection
                 if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
                     if random.uniform(0, 1) <= self.proj_prob:
-                        # select projection language
-                        if random.uniform(0, 1) <= list(self.probs.values())[0]:
-                            proj_lang = list(self.probs.keys())[0]
-                        else:
-                            proj_lang = list(self.probs.keys())[1]
-                        
-                        hidden_states = self.project(hidden_states, proj_lang)
+                        hidden_states = self.project(hidden_states, self.proj_lang)
                     #input_tensor = self.project(input_tensor)
 
                 
