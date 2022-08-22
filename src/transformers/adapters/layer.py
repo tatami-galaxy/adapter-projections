@@ -220,7 +220,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
                     if random.uniform(0, 1) <= self.proj_prob:
                         hidden_states = self.project(hidden_states, self.proj_lang)
-                    #input_tensor = self.project(input_tensor)
+                        #input_tensor = self.project(input_tensor)
 
                 
                 # lang or task adapter    
