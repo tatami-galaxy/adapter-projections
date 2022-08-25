@@ -45,11 +45,9 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 self.roberta.encoder.layer[layer_i].output.stack_projection_flag = False
 
 
-
     def disable_embedding_projection(self):
         if self.roberta.encoder.embedding_projection_flag:
             self.roberta.encoder.embedding_projection_flag = False
-
 
 
     def load_adapter_projections(self, lang_list: list, variance_accounted: float, subspace_dir: str):
