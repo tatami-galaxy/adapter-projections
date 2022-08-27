@@ -76,8 +76,10 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         self.config = config
         # adapter names
         self.task_adapter = None
+        self.converter_lang_adapter = None
         # flags
         self.stack_projection_flag = False
+        self.converter_flag = False
         # lang
         self.src_lang = None
         self.proj_lang = None
@@ -86,11 +88,16 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         self.projections_shifts = {}
         # probability
         self.proj_prob = 1.0
-
+        # means
+        self.lang_means = {}
+        # self.similarity_threshold = 0.5
+        
 
     def _init_adapter_modules(self):
         self.adapters = nn.ModuleDict(dict())
         self.adapter_fusion_layer = nn.ModuleDict(dict())
+        self.converters = nn.ModuleDict(dict())
+
 
     def add_adapter(self, adapter_name: str, layer_idx: int):
         self.layer_idx = layer_idx
@@ -126,6 +133,26 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
             )
             adapter.train(self.training)  # make sure training mode is consistent
             self.adapters[adapter_name] = adapter
+
+    def add_converters(self, input_dim=768, bottle_neck_dim=384, fn=nn.ReLU):
+
+        # for adapter in self.adapters.keys():        
+        converter = nn.Sequential(
+            nn.Linear(input_dim, bottle_neck_dim),
+            fn(),
+            nn.Linear(bottle_neck_dim, input_dim),
+            fn(),
+        )
+
+        self.converters = converter
+
+    def enable_converters(self):
+        self.converter_flag = True
+
+
+    def disable_converters(self):
+        self.converter_flag = False
+
 
     def delete_adapter(self, adapter_name: str):
         if adapter_name in self.adapters:
@@ -220,7 +247,24 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
                     if random.uniform(0, 1) <= self.proj_prob:
                         hidden_states = self.project(hidden_states, self.proj_lang)
-                        #input_tensor = self.project(input_tensor)
+                    #input_tensor = self.project(input_tensor)
+
+                if self.converter_flag:
+
+                    list_iter = None
+
+                    if type(self.converter_lang_adapter) == list:
+                        list_iter = self.converter_lang_adapter
+                    elif type(self.converter_lang_adapter) == str:
+                        list_iter = [self.converter_lang_adapter]
+
+                    if list_iter is None:
+                        raise ValueError(f"Invalid adapter setup {adapter_setup}")
+
+                    # if adapter_stack_layer in list_iter:
+
+                    # hidden_states = self.converters[adapter_stack_layer + "_cvtr"](hidden_states)
+                    hidden_states = self.converters(hidden_states)
 
                 
                 # lang or task adapter    
@@ -490,43 +534,4 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         hidden_states = torch.cat(children_hidden, 0)
         return hidden_states
 
-    def adapter_layer_forward(self, hidden_states, input_tensor, layer_norm):
-        """
-        Called for each forward pass through adapters.
-        """
-        # hidden_states = intermediate output, input_tensor = attention output
-        adapter_setup = self.get_active_setup(self.adapters)
-        if adapter_setup is not None:
-            input_hidden_states = hidden_states
-
-            if isinstance(adapter_setup, Stack):
-                hidden_states, _, input_tensor = self.adapter_stack(
-                    adapter_setup, hidden_states, input_tensor, layer_norm
-                )
-            elif isinstance(adapter_setup, Fuse):
-                hidden_states = self.adapter_fusion(adapter_setup, hidden_states, input_tensor, layer_norm)
-            elif isinstance(adapter_setup, Split):
-                hidden_states = self.adapter_split(adapter_setup, hidden_states, input_tensor, layer_norm)
-            elif isinstance(adapter_setup, Parallel):
-                # notice that we are overriding input tensor here to keep the same dim as hidden_states for the residual
-                # in case we were blowing up the batch for parallel processing of multiple adapters for the same input
-                hidden_states, input_tensor = self.adapter_parallel(
-                    adapter_setup, hidden_states, input_tensor, layer_norm
-                )
-            elif isinstance(adapter_setup, BatchSplit):
-                hidden_states = self.adapter_batchsplit(adapter_setup, hidden_states, input_tensor, layer_norm)
-            else:
-                raise ValueError(f"Invalid adapter setup {adapter_setup}")
-
-            last_adapter = self.adapters[adapter_setup.last()]
-            hidden_states = last_adapter.post_forward(hidden_states, input_hidden_states, input_tensor, layer_norm)
-
-        elif layer_norm:
-            hidden_states = layer_norm(hidden_states + input_tensor)
-        else:
-            hidden_states = hidden_states + input_tensor
-
-        return hidden_states
-
-    def forward(self, hidden_states, input_tensor, layer_norm):
-        return self.adapter_layer_forward(hidden_states, input_tensor, layer_norm)
+    de

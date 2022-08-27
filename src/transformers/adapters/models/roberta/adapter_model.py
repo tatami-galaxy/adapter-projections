@@ -221,7 +221,7 @@ class RobertaAdapterModel(EmbeddingAdaptersWrapperMixin, ModelWithFlexibleHeadsA
         head = CausalLMHead(
             self, head_name, layers=2, activation_function=activation_function, layer_norm=True, bias=True
         )
-        self.add_prediction_head(head, overwrite_ok=overwrite_ok)
+        self.add_prediction_head(head, overwrite_ok=overwrite_ok)        
 
 
 class RobertaModelWithHeads(RobertaAdapterModel):
