@@ -4,7 +4,7 @@ from ..roberta.adapter_model import RobertaAdapterModel, RobertaModelWithHeads
 import numpy as np
 import torch
 import copy
-
+import torch.nn as nn
 
 @add_start_docstrings(
     """XLM-RoBERTa Model with the option to add multiple flexible heads on top.""",
@@ -37,6 +37,10 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
         self.roberta.encoder.layer[layer_i].output.proj_prob = proj_prob
         self.roberta.encoder.layer[layer_i].output.src_lang = self.src_lang
 
+    
+    def activate_converter_stack(self, adapter_names, layer_i):
+        self.roberta.encoder.layer[layer_i].output.converter_flag = True
+        self.roberta.encoder.layer[layer_i].output.converter_lang_adapter = adapter_names
 
 
     def disable_adapter_projection_stack(self):
@@ -103,6 +107,19 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 means_b_dict[lang] = means_b
 
         self.set_adapter_projections(projection_dict, lang_list, means_a_dict, means_b_dict)
+    
+    def add_converters(self, layers = [], input_dim=768, bottle_neck_dim=384, fn=nn.ReLU):
+
+        if layers == []:
+            for layer in self.roberta.encoder.layer:
+                layer.output.add_converters(input_dim, bottle_neck_dim, fn)
+        
+        else:
+            for idx, layer in enumerate(self.roberta.encoder.layer):
+
+                if idx in layers:
+                    layer.output.add_converters(input_dim, bottle_neck_dim, fn)
+
 
 
     def set_adapter_projections(self, projection_dict, lang_list, means_a_dict, means_b_dict):
@@ -117,6 +134,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 projection, projection_shift = self.compute_projection(projection_dict, means_a_dict, means_b_dict, lang, layer_i)
                 self.roberta.encoder.layer[layer_i-1].output.projections[lang] = projection
                 self.roberta.encoder.layer[layer_i-1].output.projections_shifts[lang] = projection_shift
+                # self.roberta.encoder.layer[layer_i-1].output.lang_means[lang] = means_a_dict[lang][layer_i] ###?
                 # add shifts here
 
 
@@ -134,8 +152,6 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
         for layer_i in range(self.config.num_hidden_layers):
             getattr(self.roberta.encoder.layer[layer_i].output.adapters, tgt_adapter).adapter_down[0].weight.data = getattr(self.roberta.encoder.layer[layer_i].output.adapters, src_adapter).adapter_down[0].weight.data
             getattr(self.roberta.encoder.layer[layer_i].output.adapters, tgt_adapter).adapter_down[0].bias.data = getattr(self.roberta.encoder.layer[layer_i].output.adapters, src_adapter).adapter_down[0].bias.data
-
-
 
 
 @add_start_docstrings(
