@@ -4,6 +4,8 @@ p['logs_dir'] = "./Logs/"
 p['subspace_dir'] = "./subspace/subspace_cache/"
 p['epochs'] = 10
 p['save_dir'] = "./trained_models/"
+p['opt_dir'] = "./trained_optimizers/"
+p['sched_dir'] = "./trained_schedulers/"
 p["proj_prob"] = 0.5
 
 labels = ["O", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC"]

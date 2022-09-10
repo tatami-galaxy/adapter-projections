@@ -29,13 +29,15 @@ from my_utils.logger import Logger
 from my_utils.colors import bcolors
 
 torch.cuda.empty_cache()
-torch.cuda.synchronize()
+# torch.cuda.synchronize()
 
 parser = get_arg_parser()
 args = parser.parse_args()
 
 seed = int(args.seed)
 seed_everything(seed)
+
+alpha = float(args.mean_l_alpha)
 
 device = torch.device("cuda:"+args.gpu if torch.cuda.is_available() else "cpu")
 
@@ -44,23 +46,28 @@ if args.layers_c is not None:
 
 proj_active_layers = [int(s) for s in args.layers_p]
 layer_probs = [float(p) for p in args.proj_prob]
+mean_loss_layers = [int(l) for l in args.mean_loss]
 #The labels for the NER task and the dictionaries to map the to ids or 
 #the other way around
 model_name = "xlm-roberta-base"
 
 if len(args.src_lang) == 1:
-  src_lang = args.src_lang[0]       # en
+  src_lang = args.src_lang[0]
 else:
   src_lang = args.src_lang          
 
 if len(args.target) == 1:
-  tgt_lang = args.target[0]         # ja
+  tgt_lang = args.target[0]
 else:
   tgt_lang = args.target
 
 num_train_epochs = int(args.epochs)
 
-logger = Logger(p["logs_dir"] + "/" + model_name + "p_l_" + "_".join([str(i) for i in proj_active_layers]) + "_p_l_" + "_".join([str(pr) for pr in layer_probs]) +"_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + ".log")
+# logger = Logger(p["logs_dir"] + "/" + model_name + "p_l_" + "_".join([str(i) for i in proj_active_layers]) + "_p_l_" + "_".join([str(pr) for pr in layer_probs]) +"_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + ".log")
+if args.baseline:
+    logger = Logger(p["logs_dir"] + "/" + model_name + "_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + "_baseline.log")
+else:
+    logger = Logger(p["logs_dir"] + "/" + model_name + "p_l_" + "|".join([str(i) + "_" + str(pr) + "_" + str(pl) for i,pr,pl in zip(proj_active_layers, args.proj_prob, args.policy)]) +"_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + ".log")
 
 logger.write("Seed: " + str(seed))
 
@@ -70,36 +77,46 @@ logger.write("Loading model " + model_name, bcolors.OKCYAN)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 if args.train:
-    config = AutoConfig.from_pretrained(model_name, num_labels=len(labels), label2id=label_2_id, id2label=id_2_label)
-    model = XLMRobertaAdapterModel.from_pretrained(model_name, config=config)
 
-    logger.write("Loading projections")
-    # model.load_adapter_projections(['de', 'hi', 'is', 'es', 'id', 'ja', 'ta', 'th'], 0.9, './subspace/subspace_cache')
-    model.load_adapter_projections([tgt_lang], 0.9, './subspace/subspace_cache')
-    logger.write("Loaded projections sucessfully!", bcolors.OKGREEN)
+    if not args.checkpoint:
+        config = AutoConfig.from_pretrained(model_name, num_labels=len(labels), label2id=label_2_id, id2label=id_2_label)
+        model = XLMRobertaAdapterModel.from_pretrained(model_name, config=config)
+        logger.write("Loading language adapters for: src - " + src_lang + " tgt - " + tgt_lang)
+        lang_adapter_config = AdapterConfig.load("pfeiffer", reduction_factor=2)
+        model.load_adapter(src_lang+"/wiki@ukp", config=lang_adapter_config) # leave_out=[11])
+        model.load_adapter(tgt_lang+"/wiki@ukp", config=lang_adapter_config) # leave_out=[11])
 
-    # Load the language adapters
-    logger.write("Loading language adapters for: src - " + src_lang + " tgt - " + tgt_lang)
-    lang_adapter_config = AdapterConfig.load("pfeiffer", reduction_factor=2)
-    model.load_adapter(src_lang+"/wiki@ukp", config=lang_adapter_config) # leave_out=[11])
-    model.load_adapter(tgt_lang+"/wiki@ukp", config=lang_adapter_config) # leave_out=[11])
+        # model.add_converters(converter_active_layers)
 
-    # model.add_converters(converter_active_layers)
+        # Add a new task adapter
+        logger.write("Loading task adapters")
+        model.add_adapter("wikiann")
+        logger.write("Loaded all adapters successfully!", bcolors.OKGREEN)
 
-    # Add a new task adapter
-    logger.write("Loading task adapters")
-    model.add_adapter("wikiann")
-    logger.write("Loaded all adapters successfully!", bcolors.OKGREEN)
+        model.add_tagging_head("wikiann", num_labels=len(labels))
 
-    model.add_tagging_head("wikiann", num_labels=len(labels))
+    else:
+        logger.write("Loading model from checkpoint")
+        model = XLMRobertaAdapterModel.from_pretrained(args.checkpoint)
 
     model.train_adapter(["wikiann"])
 
-    optimizer = AdamW(model.parameters(), lr=1e-4)
+    logger.write("Loading projections")
+    model.load_adapter_projections([src_lang, tgt_lang], 0.9, './subspace/subspace_cache', device)
+    logger.write("Loaded projections sucessfully!", bcolors.OKGREEN)
+
+    # Load the language adapters
+    if not args.checkpoint:
+        optimizer = AdamW(model.parameters(), lr=1e-4)
+    else:
+        optimizer = torch.load(p["opt_dir"] + args.checkpoint[args.checkpoint.find("/")+1:])
 
 elif args.test:
     config = AutoConfig.from_pretrained(model_name, num_labels=len(labels), label2id=label_2_id, id2label=id_2_label)
-    model = torch.load(args.test, config=config)
+    # model = torch.load(args.test, config=config)
+    model = XLMRobertaAdapterModel.from_pretrained(args.test)
+    model.load_adapter_projections([src_lang, tgt_lang], 0.9, './subspace/subspace_cache', device)
+    logger.write("Loaded model from " + args.test)
     best_model = model
 else:
     print("Either train or test must be set to true")
@@ -177,12 +194,14 @@ test_dataloader = DataLoader(
 num_update_steps_per_epoch = len(train_dataloader)
 num_training_steps = num_train_epochs * num_update_steps_per_epoch
 
-lr_scheduler = get_scheduler(
-    "linear",
-    optimizer=optimizer,
-    num_warmup_steps=0,
-    num_training_steps=num_training_steps,
-)
+if args.train:
+
+    lr_scheduler = get_scheduler(
+        "linear",
+        optimizer=optimizer,
+        num_warmup_steps=0,
+        num_training_steps=num_training_steps,
+    )
 
 metric = load_metric("seqeval")
 
@@ -191,6 +210,8 @@ logger.write("Training started", bcolors.OKCYAN)
 
 
 if args.train:
+
+    frac_per_epoch = []
     progress_bar = tqdm(range(num_training_steps))
 
     best_model = None
@@ -198,24 +219,40 @@ if args.train:
 
     model.to(device)
 
+    model.disable_adapter_projection_stack()
+
+    model.activate_mean_loss(mean_loss_layers)
+
+    step = 0
+
+    for i in range(12):
+        model.set_proj_lang(i, tgt_lang)
+
+    for layer in proj_active_layers:
+        frac_per_epoch.append([])
+
     for epoch in range(num_train_epochs):
 
         # Unfreeze and activate stack setup
         model.active_adapters = Stack(src_lang, "wikiann")
 
-        for i, prob in zip(proj_active_layers, layer_probs):
-            model.activate_adapter_projection_stack('wikiann', i, tgt_lang, prob)
+        if not args.baseline:
 
-        # for i in converter_active_layers:
-        #   model.activate_converter_stack('wikiann', i)
+            if args.layers_p is not None:
+                for i, prob, policy in zip(proj_active_layers, layer_probs, args.policy):
+                    model.activate_adapter_projection_stack('wikiann', i, tgt_lang, prob, policy, int(args.sig_center))
 
         val_loss = 0
         # Training
         model.train()
+
         for batch in train_dataloader:
+
+            step += 1
             inputs = batch['input_ids'].to(device)
             labels = batch['labels'].to(device)
             outputs = model(input_ids=inputs, labels=labels)
+            # loss = outputs.loss + alpha*model.get_mean_losses()
             loss = outputs.loss
             loss.backward()
 
@@ -227,12 +264,16 @@ if args.train:
             optimizer.zero_grad()
             progress_bar.update(1)
 
+        for idx, layer in enumerate(proj_active_layers):
+            frac = model.get_frac_count(layer)
+            frac_per_epoch[idx].append(frac)
 
-        # Evaluation
         model.eval()
-        # model.disable_adapter_projection_stack()
+
+        if not args.baseline:
+            model.disable_adapter_projection_stack()
         model.active_adapters = Stack(tgt_lang, "wikiann")
-        # parallel_net.active_adapters = Stack(tgt_lang, "wikiann")
+
         for batch in eval_dataloader:
             with torch.no_grad():
                 inputs = batch['input_ids'].to(device)
@@ -245,13 +286,6 @@ if args.train:
 
                 predictions = outputs.logits.argmax(dim=2)
                 labels = batch["labels"]
-
-                # Necessary to pad predictions and labels for being gathered
-                #predictions = accelerator.pad_across_processes(predictions, dim=1, pad_index=-100)
-                #labels = accelerator.pad_across_processes(labels, dim=1, pad_index=-100)
-
-                #predictions_gathered = accelerator.gather(predictions)
-                #labels_gathered = accelerator.gather(labels)
 
                 true_predictions, true_labels = postprocess(predictions, labels)
                 metric.add_batch(predictions=true_predictions, references=true_labels)
@@ -274,7 +308,10 @@ if args.train:
         print(net_val_loss)
 
         test_loss = 0
-        # model.disable_adapter_projection_stack()
+
+        if not args.baseline:
+            model.disable_adapter_projection_stack()
+
         model.active_adapters = Stack(tgt_lang, "wikiann")
 
         for batch in test_dataloader:
@@ -298,24 +335,41 @@ if args.train:
             metric.add_batch(predictions=true_predictions, references=true_labels)
 
         results = metric.compute()
-        print(f"Testepoch {epoch}:", {key: results[f"overall_{key}"] for key in ["precision", "recall", "f1", "accuracy"]},)
-        print(test_loss/len(test_dataloader))
+        # print(f"Testepoch {epoch}:", {key: results[f"overall_{key}"] for key in ["precision", "recall", "f1", "accuracy"]},)
+        logger.write("Testepoch {epoch}:" + str({key: results[f"overall_{key}"] for key in ["precision", "recall", "f1", "accuracy"]}))
+        logger.write(str(test_loss/len(test_dataloader)))
+
+        # for layer in proj_active_layers:
+        #     model.get_frac_count(layer)                 ## To empty the counts and fracs
 
         if min_val_loss > net_val_loss or best_model is None:
             best_model = model
-            torch.save(best_model, p["save_dir"] + "/" + model_name + "p_l_" + "_".join([str(i) for i in proj_active_layers]) + "_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + "_baseline.pt")
+
+            if args.baseline:
+                if args.save:
+                    best_model.save_pretrained(p["save_dir"] + "/" + model_name + "_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + "_baseline.pt")
+                    torch.save(optimizer, p["opt_dir"] + "/" + model_name + "_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + "_baseline.pt")
+            else:
+                if args.save:
+                    best_model.save_pretrained(p["save_dir"] + "/" + model_name + "p_l_" + "|".join([str(i) + "_" + str(pr) + "_" + str(pl) for i,pr,pl in zip(proj_active_layers, args.proj_prob, args.policy)])  + "_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + "_".join(args.policy) + ".pt")
+                    torch.save(optimizer, p["opt_dir"] + "/" + model_name + "p_l_" + "|".join([str(i) + "_" + str(pr) + "_" + str(pl) for i,pr,pl in zip(proj_active_layers, args.proj_prob, args.policy)])  + "_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + "_".join(args.policy) + ".pt")
             min_val_loss = net_val_loss
 
     logger.draw_line()
 
+    logger.write("Fraction of fractions for different epochs and layers:")
+    logger.write("\t\t" + "\t".join([str(i) for i in proj_active_layers]))
 
-    best_model = torch.load(p["save_dir"] + "/" + model_name + "p_l_" + "_".join([str(i) for i in proj_active_layers]) + "_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + "_baseline.pt")
 
+    for epoch in range(num_train_epochs):
+        logger.write("Epoch " + str(epoch + 1) + " : " + "\t".join([str(f[epoch]) for f in frac_per_epoch]))
 
 if args.test:
     test_loss = 0
+    best_model.to(device)
     best_model.disable_adapter_projection_stack()
     best_model.active_adapters = Stack(tgt_lang, "wikiann")
+    epoch = "test"
 
     for batch in test_dataloader:
         with torch.no_grad():
@@ -327,16 +381,11 @@ if args.test:
         predictions = outputs.logits.argmax(dim=2)
         labels = batch["labels"]
 
-            # Necessary to pad predictions and labels for being gathered
-            #predictions = accelerator.pad_across_processes(predictions, dim=1, pad_index=-100)
-            #labels = accelerator.pad_across_processes(labels, dim=1, pad_index=-100)
-
-            #predictions_gathered = accelerator.gather(predictions)
-            #labels_gathered = accelerator.gather(labels)
-
         true_predictions, true_labels = postprocess(predictions, labels)
         metric.add_batch(predictions=true_predictions, references=true_labels)
 
     results = metric.compute()
     print(f"epoch {epoch}:", {key: results[f"overall_{key}"] for key in ["precision", "recall", "f1", "accuracy"]},)
     print(test_loss/len(test_dataloader))
+
+logger.close()

@@ -29,13 +29,28 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
             self.roberta.encoder.embedding_projection_flag = True
             self.roberta.encoder.proj_lang = lang
 
+    def set_proj_lang(self, layer_i, lang):
+        self.roberta.encoder.layer[layer_i].output.proj_lang = lang
 
-    def activate_adapter_projection_stack(self, adapter_name: str, layer_i: int, lang: str, proj_prob: float):
+    def get_frac_count(self, layer_i):
+
+        if self.roberta.encoder.layer[layer_i].output.frac_mean_denom != 0:
+            frac = self.roberta.encoder.layer[layer_i].output.frac_mean_num/self.roberta.encoder.layer[layer_i].output.frac_mean_denom
+        else:
+            print("Warning: get_frac_count called with a denominator of 0. Returning a fraction of 0")
+        self.roberta.encoder.layer[layer_i].output.frac_mean_num = 0
+        self.roberta.encoder.layer[layer_i].output.frac_mean_denom = 0
+
+        return frac
+
+    def activate_adapter_projection_stack(self, adapter_name: str, layer_i: int, lang: str, proj_prob: float, policy: str, sigmoid_center):
         self.roberta.encoder.layer[layer_i].output.stack_projection_flag = True
         self.roberta.encoder.layer[layer_i].output.task_adapter = adapter_name
         self.roberta.encoder.layer[layer_i].output.proj_lang = lang
         self.roberta.encoder.layer[layer_i].output.proj_prob = proj_prob
         self.roberta.encoder.layer[layer_i].output.src_lang = self.src_lang
+        self.roberta.encoder.layer[layer_i].output.policy = policy
+        self.roberta.encoder.layer[layer_i].output.sigmoid_center = sigmoid_center
 
     
     def activate_converter_stack(self, adapter_names, layer_i):
@@ -54,7 +69,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
             self.roberta.encoder.embedding_projection_flag = False
 
 
-    def load_adapter_projections(self, lang_list: list, variance_accounted: float, subspace_dir: str):
+    def load_adapter_projections(self, lang_list: list, variance_accounted: float, subspace_dir: str, device):
         if subspace_dir[-1] != '/': subspace_dir += '/'
         self.roberta.encoder.lang_list = lang_list
 
@@ -65,12 +80,14 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
         projection_dict = {}
         means_a_dict = {}
         means_b_dict = {}
+        means_langs = {}
 
         for lang in lang_list:
 
             projections = []
             means_a = []
             means_b = []
+            lang_m = []
 
             for layer_i in range(self.config.num_hidden_layers+1):
                 mean_a = np.load(subspace_dir+self.src_lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
@@ -83,6 +100,8 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 s = np.load(subspace_dir+lang+'_layer'+str(layer_i)+'_s.npy')
                 vh = np.load(subspace_dir+lang+'_layer'+str(layer_i)+'_vh.npy')
                 subspace_m = np.load(subspace_dir+lang+'_layer'+str(layer_i)+'_mean.npy')
+
+                lang_m.append(subspace_m)
 
                 v = np.transpose(vh) # columns of V form the desired orthonormal basis
 
@@ -105,8 +124,10 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 projection_dict[lang] = projections
                 means_a_dict[lang] = means_a
                 means_b_dict[lang] = means_b
+            
+            means_langs[lang] = lang_m
 
-        self.set_adapter_projections(projection_dict, lang_list, means_a_dict, means_b_dict)
+        self.set_adapter_projections(projection_dict, lang_list, means_a_dict, means_b_dict, means_langs, device)
     
     def add_converters(self, layers = [], input_dim=768, bottle_neck_dim=384, fn=nn.ReLU):
 
@@ -120,9 +141,28 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 if idx in layers:
                     layer.output.add_converters(input_dim, bottle_neck_dim, fn)
 
+    def activate_mean_loss(self, layers=range(12)):
 
+        for layer in layers:
+            self.roberta.encoder.layer[layer].output.mean_loss_flag = True
 
-    def set_adapter_projections(self, projection_dict, lang_list, means_a_dict, means_b_dict):
+    def disable_mean_loss(self, layers=range(12)):
+
+        for layer in layers:
+            self.roberta.encoder.layer[layer].output.mean_loss_flag = False
+
+    def get_mean_losses(self):
+
+        loss = 0
+
+        for layer_i in range(self.config.num_hidden_layers):
+
+            if self.roberta.encoder.layer[layer_i].output.mean_loss_flag:
+                loss += self.roberta.encoder.layer[layer_i].output.mean_loss
+
+        return loss
+
+    def set_adapter_projections(self, projection_dict, lang_list, means_a_dict, means_b_dict, means_langs, device):
         for lang in lang_list:
             projection, projection_shift = self.compute_projection(projection_dict, means_a_dict, means_b_dict, lang, 0) # 0 for embedding layer projections
             self.roberta.encoder.embedding_projections[lang] = projection #copy.deepcopy(projection)
@@ -134,7 +174,8 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 projection, projection_shift = self.compute_projection(projection_dict, means_a_dict, means_b_dict, lang, layer_i)
                 self.roberta.encoder.layer[layer_i-1].output.projections[lang] = projection
                 self.roberta.encoder.layer[layer_i-1].output.projections_shifts[lang] = projection_shift
-                # self.roberta.encoder.layer[layer_i-1].output.lang_means[lang] = means_a_dict[lang][layer_i] ###?
+                self.roberta.encoder.layer[layer_i-1].output.lang_means[lang] = torch.from_numpy(means_langs[lang][layer_i]) ###?
+                self.roberta.encoder.layer[layer_i-1].output.device = device
                 # add shifts here
 
 

@@ -4,6 +4,7 @@ from typing import List, Mapping, Union
 import torch
 from torch import nn
 import random
+import math
 
 from .composition import AdapterCompositionBlock, BatchSplit, Fuse, Parallel, Split, Stack
 from .configuration import AdapterConfig
@@ -90,7 +91,18 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         self.proj_prob = 1.0
         # means
         self.lang_means = {}
-        # self.similarity_threshold = 0.5
+        self.sigmoid_center = 6000
+        self.device = None
+        self.step = 0
+        self.policy = None
+        self.policies = ["sigmoid", "random", "cosine_src", "cosine_tgt", "cosine_src_inv", "cosine_tgt_inv"]
+        # mean loss
+        self.mean_loss = 0
+        self.mean_loss_flag = False
+        # fraction of projections
+        self.fracs_per_epoch = []
+        self.frac_mean_num = 0
+        self.frac_mean_denom = 0
         
 
     def _init_adapter_modules(self):
@@ -212,6 +224,9 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         Forwards the given input through the given stack of adapters.
         """
         # hidden_states = intermediate output, input_tensor = attention output
+
+        self.step += 1
+
         for i, adapter_stack_layer in enumerate(adapter_setup):
             # Break if setup is too deep
             if isinstance(adapter_stack_layer, AdapterCompositionBlock) and lvl >= 1:
@@ -245,9 +260,50 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
 
                 # stack projection
                 if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
-                    if random.uniform(0, 1) <= self.proj_prob:
-                        hidden_states = self.project(hidden_states, self.proj_lang)
-                    #input_tensor = self.project(input_tensor)
+
+                    if self.policy == "sigmoid":
+
+                        if random.uniform(0, 1) < max((1.0/(1 + torch.exp(0.001*torch.tensor(-self.step + self.sigmoid_center)))), self.proj_prob):
+                            hidden_states = self.project(hidden_states, self.proj_lang)
+                    
+                    elif self.policy == "random":
+
+                        if random.uniform(0, 1) <= self.proj_prob:                            
+                            hidden_states = self.project(hidden_states, self.proj_lang)
+                            self.frac_mean_num += hidden_states.shape[0]*hidden_states.shape[1]
+                            
+                        self.frac_mean_denom += (hidden_states.shape[0]*hidden_states.shape[1])
+                    
+                    
+                    elif self.policy in ["cosine_src", "cosine_tgt", "cosine_src_inv", "cosine_tgt_inv"]:
+
+                        projection_mask = torch.zeros_like(hidden_states)
+                        cosine_src = torch.einsum('bsi,i->bs', hidden_states, self.lang_means[self.src_lang].to(self.device).float())
+                        cosine_tgt = torch.einsum('bsi,i->bs', hidden_states, self.lang_means[self.proj_lang].to(self.device).float())
+
+                        cosine_src = cosine_src/(torch.sqrt(torch.sum(self.lang_means[self.src_lang]**2)*(torch.sum(hidden_states**2, dim=2))))
+                        cosine_tgt = cosine_tgt/(torch.sqrt(torch.sum(self.lang_means[self.proj_lang]**2)*(torch.sum(hidden_states**2, dim=2))))
+
+                        if self.policy == "cosine_src":                            
+                            projection_mask[cosine_src > cosine_tgt,:] = 1
+                            projected_hidden_states = self.project(hidden_states, self.src_lang)
+                        elif self.policy == "cosine_tgt":
+                            projection_mask[cosine_tgt > cosine_src,:] = 1
+                            projected_hidden_states = self.project(hidden_states, self.proj_lang)
+                        elif self.policy == "cosine_src_inv":
+                            projection_mask[cosine_src > cosine_tgt,:] = 1
+                            projected_hidden_states = self.project(hidden_states, self.proj_lang)
+                        else:
+                            projection_mask[cosine_tgt > cosine_src,:] = 1
+                            projected_hidden_states = self.project(hidden_states, self.src_lang)
+
+                        self.frac_mean_num += torch.sum(torch.max(projection_mask, dim=2)[0]).item()
+                        self.frac_mean_denom += (hidden_states.shape[0]*hidden_states.shape[1])
+
+                        hidden_states = hidden_states*(1 - projection_mask) + projected_hidden_states*projection_mask
+
+                    else:
+                        print("Warning: Invalid policy: " + self.policy + " - chosen and projection flag is on")
 
                 if self.converter_flag:
 
@@ -261,9 +317,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                     if list_iter is None:
                         raise ValueError(f"Invalid adapter setup {adapter_setup}")
 
-                    # if adapter_stack_layer in list_iter:
-
-                    # hidden_states = self.converters[adapter_stack_layer + "_cvtr"](hidden_states)
                     hidden_states = self.converters(hidden_states)
 
                 
@@ -272,6 +325,8 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
                 hidden_states, _, up = adapter_layer(hidden_states, residual_input=residual)
 
+                if self.mean_loss_flag:
+                    self.mean_loss = torch.mean(torch.sum((self.lang_means[self.proj_lang].to(self.device) - hidden_states)**2, dim=1))
 
                 # as this stack might be part of a fusion block, return the adapter up-projection output here
                 # together with the final output (with potential residuals & norms) if we reached the last block of the stack
@@ -534,4 +589,43 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         hidden_states = torch.cat(children_hidden, 0)
         return hidden_states
 
-    de
+    def adapter_layer_forward(self, hidden_states, input_tensor, layer_norm):
+        """
+        Called for each forward pass through adapters.
+        """
+        # hidden_states = intermediate output, input_tensor = attention output
+        adapter_setup = self.get_active_setup(self.adapters)
+        if adapter_setup is not None:
+            input_hidden_states = hidden_states
+
+            if isinstance(adapter_setup, Stack):
+                hidden_states, _, input_tensor = self.adapter_stack(
+                    adapter_setup, hidden_states, input_tensor, layer_norm
+                )
+            elif isinstance(adapter_setup, Fuse):
+                hidden_states = self.adapter_fusion(adapter_setup, hidden_states, input_tensor, layer_norm)
+            elif isinstance(adapter_setup, Split):
+                hidden_states = self.adapter_split(adapter_setup, hidden_states, input_tensor, layer_norm)
+            elif isinstance(adapter_setup, Parallel):
+                # notice that we are overriding input tensor here to keep the same dim as hidden_states for the residual
+                # in case we were blowing up the batch for parallel processing of multiple adapters for the same input
+                hidden_states, input_tensor = self.adapter_parallel(
+                    adapter_setup, hidden_states, input_tensor, layer_norm
+                )
+            elif isinstance(adapter_setup, BatchSplit):
+                hidden_states = self.adapter_batchsplit(adapter_setup, hidden_states, input_tensor, layer_norm)
+            else:
+                raise ValueError(f"Invalid adapter setup {adapter_setup}")
+
+            last_adapter = self.adapters[adapter_setup.last()]
+            hidden_states = last_adapter.post_forward(hidden_states, input_hidden_states, input_tensor, layer_norm)
+
+        elif layer_norm:
+            hidden_states = layer_norm(hidden_states + input_tensor)
+        else:
+            hidden_states = hidden_states + input_tensor
+
+        return hidden_states
+
+    def forward(self, hidden_states, input_tensor, layer_norm):
+        return self.adapter_layer_forward(hidden_states, input_tensor, layer_norm)
