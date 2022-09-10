@@ -6,7 +6,6 @@ p['epochs'] = 10
 p['save_dir'] = "./trained_models/"
 p['opt_dir'] = "./trained_optimizers/"
 p['sched_dir'] = "./trained_schedulers/"
-p["proj_prob"] = 0.5
 
 labels = ["O", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC"]
 id_2_label = {id_: label for id_, label in enumerate(labels)}
