@@ -13,7 +13,7 @@ import copy
 from transformers import AdapterConfig
 from datasets import load_dataset
 from transformers import TrainingArguments
-from transformers import DataCollatorForTokenClassification
+from transformers import DataCollatorForTokenClassification, DataCollatorWithPadding
 from transformers import TrainingArguments, AdapterTrainer, EvalPrediction
 from datasets import load_metric
 import numpy as np
@@ -39,7 +39,10 @@ seed_everything(seed)
 
 alpha = float(args.mean_l_alpha)
 
+task = args.task.upper()
+
 device = torch.device("cuda:"+args.gpu if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 
 if args.layers_c is not None:
     converter_active_layers = [int(s) for s in args.layers_c]
@@ -65,9 +68,9 @@ num_train_epochs = int(args.epochs)
 
 # logger = Logger(p["logs_dir"] + "/" + model_name + "p_l_" + "_".join([str(i) for i in proj_active_layers]) + "_p_l_" + "_".join([str(pr) for pr in layer_probs]) +"_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + ".log")
 if args.baseline:
-    logger = Logger(p["logs_dir"] + "/" + model_name + "_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + "_baseline.log")
+    logger = Logger(p["logs_dir"] + "/Proj2/" + model_name + "_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + "_baseline.log")
 else:
-    logger = Logger(p["logs_dir"] + "/" + model_name + "p_l_" + "|".join([str(i) + "_" + str(pr) + "_" + str(pl) for i,pr,pl in zip(proj_active_layers, args.proj_prob, args.policy)]) +"_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + ".log")
+    logger = Logger(p["logs_dir"] + "/Proj2/" + model_name + "p_l_" + "|".join([str(i) + "_" + str(pr) + "_" + str(pl) for i,pr,pl in zip(proj_active_layers, args.proj_prob, args.policy)]) +"_src_" + src_lang + "_tgt_" + tgt_lang + "_eps_" + str(num_train_epochs) + "_seed_" + str(seed) + ".log")
 
 logger.write("Seed: " + str(seed))
 
@@ -93,7 +96,10 @@ if args.train:
         model.add_adapter("wikiann")
         logger.write("Loaded all adapters successfully!", bcolors.OKGREEN)
 
-        model.add_tagging_head("wikiann", num_labels=len(labels))
+        if args.task.upper() == "NER":
+            model.add_tagging_head("wikiann", num_labels=len(labels))
+        elif args.task.upper() == "XNLI":
+            model.add_classification_head("wikiann", num_labels=3)
 
     else:
         logger.write("Loading model from checkpoint")
@@ -123,73 +129,153 @@ else:
 
 logger.write("Loaded model " + model_name + " successfully!", bcolors.OKGREEN)
 
+######################################################## XNLI
+
+    # train_dataset = load_dataset(
+    #     "xnli",
+    #     src_lang,
+    #     split="train",
+    # )
+
+    # train_label_list = train_dataset.features["label"].names
+
+    # eval_dataset = load_dataset(
+    #     "xnli",
+    #     tgt_lang,
+    #     split="validation",
+    # )
+
+    # eval_label_list = eval_dataset.features["label"].names
+
+    # test_dataset = load_dataset(
+    #     "xnli",
+    #     tgt_lang,
+    #     split="test",
+    # )
+    # test_label_list = test_dataset.features["label"].names
+
+    # # Labels
+    # num_labels = len(train_label_list)
+
+    # padding = False
+
+    # def preprocess_function(examples):
+    #     # Tokenize the texts
+    #     return tokenizer(
+    #         examples["premise"],
+    #         examples["hypothesis"],
+    #         padding=padding,
+    #         # max_length=data_args.max_seq_length,
+    #         truncation=True,
+    #     )
+
+    # train_dataset = train_dataset.map(
+    #     preprocess_function,
+    #     batched=True,
+    #     desc="Running tokenizer on train dataset",
+    # )
+
+    # eval_dataset = eval_dataset.map(
+    #     preprocess_function,
+    #     batched=True,
+    #     desc="Running tokenizer on train dataset",
+    # )
+
+    # test_dataset = test_dataset.map(
+    #     preprocess_function,
+    #     batched=True,
+    #     desc="Running tokenizer on train dataset",
+    # )
+
+    # Get the metric function
+    # metric = evaluate.load("xnli")
+
+    # # You can define your custom compute_metrics function. It takes an `EvalPrediction` object (a namedtuple with a
+    # # predictions and label_ids field) and has to return a dictionary string to float.
+    # def compute_metrics(p: EvalPrediction):
+    #     preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
+    #     preds = np.argmax(preds, axis=1)
+    #     return metric.compute(predictions=preds, references=p.label_ids)
+
+    # Data collator will default to DataCollatorWithPadding, so we change it if we already did the padding.
+    # if data_args.pad_to_max_length:
+    #     data_collator = default_data_collator
+    # elif training_args.fp16:
+    #     data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
+    # else:
+    # data_collator = None
+########################################################
+
+
 logger.write("Loading and processing dataset", bcolors.OKCYAN)
 
-dataset_src = load_dataset('wikiann', src_lang)
-dataset_tgt = load_dataset('wikiann', tgt_lang)
+# dataset_src = load_dataset('wikiann', src_lang)
+# dataset_tgt = load_dataset('wikiann', tgt_lang)
 
-# # This method is adapted from the huggingface transformers run_ner.py example script
-# # Tokenize all texts and align the labels with them.
+# # # This method is adapted from the huggingface transformers run_ner.py example script
+# # # Tokenize all texts and align the labels with them.
 
-def tokenize_and_align_labels(examples):
-    text_column_name = "tokens"
-    label_column_name = "ner_tags"
-    tokenized_inputs = tokenizer(
-        examples[text_column_name],
-        padding=False,
-        truncation=True,
-        # We use this argument because the texts in our dataset are lists of words (with a label for each word).
-        is_split_into_words=True,
-    )
-    labels = []
-    for i, label in enumerate(examples[label_column_name]):
-        word_ids = tokenized_inputs.word_ids(batch_index=i)
-        previous_word_idx = None
-        label_ids = []
-        for word_idx in word_ids:
-            # Special tokens have a word id that is None. We set the label to -100 so they are automatically
-            # ignored in the loss function.
-            if word_idx is None:
-                label_ids.append(-100)
-            # We set the label for the first token of each word.
-            elif word_idx != previous_word_idx:
-                label_ids.append(label[word_idx])
-            # For the other tokens in a word, we set the label to either the current label or -100, depending on
-            # the label_all_tokens flag.  
-            else:
-                label_ids.append(-100)
-            previous_word_idx = word_idx
+# def tokenize_and_align_labels(examples):
+#     text_column_name = "tokens"
+#     label_column_name = "ner_tags"
+#     tokenized_inputs = tokenizer(
+#         examples[text_column_name],
+#         padding=False,
+#         truncation=True,
+#         # We use this argument because the texts in our dataset are lists of words (with a label for each word).
+#         is_split_into_words=True,
+#     )
+#     labels = []
+#     for i, label in enumerate(examples[label_column_name]):
+#         word_ids = tokenized_inputs.word_ids(batch_index=i)
+#         previous_word_idx = None
+#         label_ids = []
+#         for word_idx in word_ids:
+#             # Special tokens have a word id that is None. We set the label to -100 so they are automatically
+#             # ignored in the loss function.
+#             if word_idx is None:
+#                 label_ids.append(-100)
+#             # We set the label for the first token of each word.
+#             elif word_idx != previous_word_idx:
+#                 label_ids.append(label[word_idx])
+#             # For the other tokens in a word, we set the label to either the current label or -100, depending on
+#             # the label_all_tokens flag.  
+#             else:
+#                 label_ids.append(-100)
+#             previous_word_idx = word_idx
 
-        labels.append(label_ids)
-    tokenized_inputs["labels"] = labels
-    return tokenized_inputs
+#         labels.append(label_ids)
+#     tokenized_inputs["labels"] = labels
+#     return tokenized_inputs
 
-dataset_src = dataset_src.map(
-    tokenize_and_align_labels,
-    batched=True,
-    remove_columns=dataset_src["train"].column_names,
-)
-dataset_tgt = dataset_tgt.map(
-    tokenize_and_align_labels,
-    batched=True,
-    remove_columns=dataset_tgt["train"].column_names,
-)
+# dataset_src = dataset_src.map(
+#     tokenize_and_align_labels,
+#     batched=True,
+#     remove_columns=dataset_src["train"].column_names,
+# )
+# dataset_tgt = dataset_tgt.map(
+#     tokenize_and_align_labels,
+#     batched=True,
+#     remove_columns=dataset_tgt["train"].column_names,
+# )
 
-data_collator = DataCollatorForTokenClassification(tokenizer,)
+# data_collator = DataCollatorForTokenClassification(tokenizer,)
 
-train_dataloader = DataLoader(
-    dataset_src["train"],
-    shuffle=True,
-    collate_fn=data_collator,
-    batch_size=16,
-)
-eval_dataloader = DataLoader(
-    dataset_tgt["validation"], collate_fn=data_collator, batch_size=16
-)
+# train_dataloader = DataLoader(
+#     dataset_src["train"],
+#     shuffle=True,
+#     collate_fn=data_collator,
+#     batch_size=16,
+# )
+# eval_dataloader = DataLoader(
+#     dataset_tgt["validation"], collate_fn=data_collator, batch_size=16
+# )
 
-test_dataloader = DataLoader(
-    dataset_tgt["test"], collate_fn=data_collator, batch_size=16
-)
+# test_dataloader = DataLoader(
+#     dataset_tgt["test"], collate_fn=data_collator, batch_size=16
+# )
+
+train_dataloader, eval_dataloader, test_dataloader = get_processed_dataset(task, tokenizer,src_lang, tgt_lang)
 
 num_update_steps_per_epoch = len(train_dataloader)
 num_training_steps = num_train_epochs * num_update_steps_per_epoch
@@ -203,11 +289,15 @@ if args.train:
         num_training_steps=num_training_steps,
     )
 
-metric = load_metric("seqeval")
+if task == "NER":
+    metric = load_metric("seqeval")
+elif task == "XNLI":
+    # metric = evaluate.load("xnli")
+    metric = load_metric("xnli")
+# metric = load_metric(task)
 
 logger.draw_line()
 logger.write("Training started", bcolors.OKCYAN)
-
 
 if args.train:
 

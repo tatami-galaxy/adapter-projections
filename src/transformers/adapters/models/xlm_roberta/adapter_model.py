@@ -38,6 +38,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
             frac = self.roberta.encoder.layer[layer_i].output.frac_mean_num/self.roberta.encoder.layer[layer_i].output.frac_mean_denom
         else:
             print("Warning: get_frac_count called with a denominator of 0. Returning a fraction of 0")
+            frac = 0
         self.roberta.encoder.layer[layer_i].output.frac_mean_num = 0
         self.roberta.encoder.layer[layer_i].output.frac_mean_denom = 0
 
@@ -92,7 +93,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
             for layer_i in range(self.config.num_hidden_layers+1):
                 mean_a = np.load(subspace_dir+self.src_lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
                 mean_b = np.load(subspace_dir+self.src_lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
-                #mean_b = np.load(subspace_dir+lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
+                # mean_b = np.load(subspace_dir+lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
 
                 means_a.append(mean_a)
                 means_b.append(mean_b)
