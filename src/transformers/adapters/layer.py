@@ -259,14 +259,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                         hidden_states = neutral_comp + tgt_lang_comp    # add language neutral component and target language projection component
 
 
-                # parallel projection
-                if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag:
-                    parallel_adapter = self.adapters[self.parallel_adapter] # parallel adapter
-                    p_hidden_states = self.project(hidden_states, self.proj_lang)   # project hidden states before passing through parallel adapter
-                    p_hidden_states, _, p_residual = parallel_adapter.pre_forward(p_hidden_states, input_tensor, layer_norm)
-                    p_hidden_states, _, p_up = parallel_adapter(p_hidden_states, residual_input=p_residual) # pass projected hidden states through parallel adapter
-
-
                 # lang or task adapter
                 adapter_layer = self.adapters[adapter_stack_layer]
                 hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
