@@ -249,7 +249,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                         hidden_states = self.project(hidden_states, self.proj_lang)
                         #input_tensor = self.project(input_tensor)
 
-
+                
                 # disjoint projection
                 if adapter_stack_layer == self.task_adapter and self.disjoint_projection_flag:
                     if random.uniform(0, 1) <= self.disjoint_prob:  # project with some probability
@@ -267,7 +267,7 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                     p_hidden_states, _, p_up = parallel_adapter(p_hidden_states, residual_input=p_residual) # pass projected hidden states through parallel adapter
 
 
-                # lang or task adapter
+                # lang or task adapter 
                 adapter_layer = self.adapters[adapter_stack_layer]
                 hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
                 context = ForwardContext.get_context()

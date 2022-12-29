@@ -138,7 +138,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
 
     def compute_projection(self, projection_dict, means_a_dict, means_b_dict, lang, layer_i):
         dim_size = self.config.hidden_size
-        projection = torch.tensor(projection_dict[lang][layer_i]).float()
+        projection = torch.tensor(projection_dict[lang][layer_i]).float() 
         mean_a = torch.tensor(means_a_dict[lang][layer_i]).float()
         mean_b = torch.tensor(means_b_dict[lang][layer_i]).float()
         projection_shift = mean_b - torch.matmul(projection, mean_a)

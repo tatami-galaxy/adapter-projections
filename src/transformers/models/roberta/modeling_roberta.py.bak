@@ -514,7 +514,7 @@ class RobertaEncoder(nn.Module):
         # fixed shift here
         return inputs
 
-
+    
     def layer_project(self, inputs, lang, layer_i):
         # batch norm here
         projection = self.layer[layer_i].layer_projections[lang].to(inputs.device)

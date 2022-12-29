@@ -133,7 +133,7 @@ class DocumentQuestionAnsweringPipelineTests(unittest.TestCase, metaclass=Pipeli
         outputs = dqa_pipeline(image=image, question=question, words=words, boxes=boxes, top_k=2)
         self.assertEqual(outputs, [])
 
-    #    TODO: Enable this once hf-internal-testing/tiny-random-donut is implemented
+    # 	 TODO: Enable this once hf-internal-testing/tiny-random-donut is implemented
     #    @require_torch
     #    def test_small_model_pt_donut(self):
     #        dqa_pipeline = pipeline("document-question-answering", model="hf-internal-testing/tiny-random-donut")
