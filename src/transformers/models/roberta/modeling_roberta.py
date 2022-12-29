@@ -506,7 +506,7 @@ class RobertaEncoder(nn.Module):
         self.proj_lang = None
 
 
-        def embedding_project(self, inputs, lang):
+    def embedding_project(self, inputs, lang):
         # batch norm here #
         projection = self.embedding_projections[lang].to(inputs.device)
         projection_shift = self.embedding_projections_shifts[lang].to(inputs.device)
