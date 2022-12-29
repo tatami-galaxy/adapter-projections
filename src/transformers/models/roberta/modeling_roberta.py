@@ -19,6 +19,7 @@ import math
 from typing import List, Optional, Tuple, Union
 
 import torch
+import numpy as np
 import torch.utils.checkpoint
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
@@ -413,6 +414,11 @@ class RobertaLayer(nn.Module):
             self.crossattention = RobertaAttention(config, position_embedding_type="absolute", location_key="cross")
         self.intermediate = RobertaIntermediate(config)
         self.output = RobertaOutput(config)
+        # layer projections
+        self.layer_projections = {}
+        self.layer_projections_shifts = {}
+        self.projection_flag = False
+        self.proj_lang = None
 
     def forward(
         self,
@@ -492,6 +498,31 @@ class RobertaEncoder(nn.Module):
         self.config = config
         self.layer = nn.ModuleList([RobertaLayer(config) for _ in range(config.num_hidden_layers)])
         self.gradient_checkpointing = False
+        # embedding projections
+        self.embedding_projections = {}
+        self.embedding_projections_shifts = {}
+        self.embedding_projection_flag = False
+        self.lang_list = []
+        self.proj_lang = None
+
+
+        def embedding_project(self, inputs, lang):
+        # batch norm here
+        projection = self.embedding_projections[lang].to(inputs.device)
+        projection_shift = self.embedding_projections_shifts[lang].to(inputs.device)
+        inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
+        # fixed shift here
+        return inputs
+
+    
+    def layer_project(self, inputs, lang, layer_i):
+        # batch norm here
+        projection = self.layer[layer_i].layer_projections[lang].to(inputs.device)
+        projection_shift = self.layer[layer_i].layer_projections_shifts[lang].to(inputs.device)
+        inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
+        # fixed shift here
+        return inputs
+
 
     def forward(
         self,
@@ -560,6 +591,12 @@ class RobertaEncoder(nn.Module):
                 all_self_attentions = all_self_attentions + (layer_outputs[1],)
                 if self.config.add_cross_attention:
                     all_cross_attentions = all_cross_attentions + (layer_outputs[2],)
+
+
+            # project hidden states
+            if layer_module.projection_flag:
+                hidden_states = self.layer_project(hidden_states, layer_module.proj_lang, i)
+
 
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)

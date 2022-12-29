@@ -4,6 +4,7 @@ from typing import List, Mapping, Union
 import numpy as np
 import torch
 from torch import nn
+import random
 
 from .composition import AdapterCompositionBlock, BatchSplit, Fuse, Parallel, Split, Stack
 from .configuration import AdapterConfig
@@ -99,6 +100,21 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         super().__init__()
         self.location_key = location_key
         self.config = config
+        # adapter names
+        self.task_adapter = None
+        # flags
+        self.stack_projection_flag = False
+        self.disjoint_projection_flag = False
+        # lang
+        self.src_lang = None
+        self.proj_lang = None
+        # projections
+        self.projections = {}
+        self.projections_shifts = {}
+        # probability
+        self.proj_prob = 1.0
+        self.disjoint_prob = 1.0
+
 
     def _init_adapter_modules(self):
         self.adapters = nn.ModuleDict(dict())
@@ -226,6 +242,32 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 )
             # Case 5: We have a single adapter which is part of this module -> forward pass
             elif adapter_stack_layer in self.adapters:
+
+                # stack random projection
+                if adapter_stack_layer == self.task_adapter and self.stack_projection_flag:
+                    if random.uniform(0, 1) <= self.proj_prob:  # project with some probability
+                        hidden_states = self.project(hidden_states, self.proj_lang)
+                        #input_tensor = self.project(input_tensor)
+
+                
+                # disjoint projection
+                if adapter_stack_layer == self.task_adapter and self.disjoint_projection_flag:
+                    if random.uniform(0, 1) <= self.disjoint_prob:  # project with some probability
+                        lang_comp = self.project(hidden_states, self.src_lang)  # source language component
+                        neutral_comp = hidden_states - lang_comp    # language neutral component
+                        tgt_lang_comp = self.project(lang_comp, self.proj_lang) # project source language component onto target language subspace
+                        hidden_states = neutral_comp + tgt_lang_comp    # add language neutral component and target language projection component
+
+
+                # parallel projection
+                if adapter_stack_layer == self.task_adapter and self.parallel_projection_flag:
+                    parallel_adapter = self.adapters[self.parallel_adapter] # parallel adapter
+                    p_hidden_states = self.project(hidden_states, self.proj_lang)   # project hidden states before passing through parallel adapter
+                    p_hidden_states, _, p_residual = parallel_adapter.pre_forward(p_hidden_states, input_tensor, layer_norm)
+                    p_hidden_states, _, p_up = parallel_adapter(p_hidden_states, residual_input=p_residual) # pass projected hidden states through parallel adapter
+
+
+                # lang or task adapter 
                 adapter_layer = self.adapters[adapter_stack_layer]
                 hidden_states, _, residual = adapter_layer.pre_forward(hidden_states, input_tensor, layer_norm)
                 context = ForwardContext.get_context()
@@ -243,6 +285,21 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         # If we got here, we either had another nested composition block
         # or no adapter was found. In both cases, we don't need to set the second return value for fusion
         return hidden_states, None, input_tensor
+
+
+    def project(self, inputs, lang):
+        # batch norm here
+        projection = self.projections[lang].to(inputs.device)
+        projection_shift = self.projections_shifts[lang].to(inputs.device)
+        inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
+        # fixed shift here
+        return inputs
+
+
+    def NLLvMF(self, e_cap, e_w):   # e(w) -> unit norm
+        pass
+
+
 
     def adapter_fusion(self, adapter_setup: Fuse, hidden_states, input_tensor, layer_norm, lvl=0):
         """
