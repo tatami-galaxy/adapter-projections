@@ -507,7 +507,7 @@ class RobertaEncoder(nn.Module):
 
 
         def embedding_project(self, inputs, lang):
-        # batch norm here
+        # batch norm here #
         projection = self.embedding_projections[lang].to(inputs.device)
         projection_shift = self.embedding_projections_shifts[lang].to(inputs.device)
         inputs = torch.einsum('ij,bsj->bsi', projection, inputs) + projection_shift
