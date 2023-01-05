@@ -267,8 +267,6 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
 
                     hidden_states = hidden_states*(1 - projection_mask) + projected_hidden_states*projection_mask
 
-                    print('csi')
-
 
 
                 # disjoint projection
