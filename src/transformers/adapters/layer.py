@@ -256,8 +256,8 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                 # csi
                 if adapter_stack_layer == self.task_adapter and self.csi_flag:
                     projection_mask = torch.zeros_like(hidden_states)
-                    cosine_src = torch.einsum('bsi,i->bs', hidden_states, self.lang_means[self.src_lang].float())
-                    cosine_tgt = torch.einsum('bsi,i->bs', hidden_states, self.lang_means[self.proj_lang].float())  
+                    cosine_src = torch.einsum('bsi,i->bs', hidden_states, self.lang_means[self.src_lang].to(hidden_states.device).float())
+                    cosine_tgt = torch.einsum('bsi,i->bs', hidden_states, self.lang_means[self.proj_lang].to(hidden_states.device).float())  
 
                     cosine_src = cosine_src/(torch.sqrt(torch.sum(self.lang_means[self.src_lang]**2)*(torch.sum(hidden_states**2, dim=2))))
                     cosine_tgt = cosine_tgt/(torch.sqrt(torch.sum(self.lang_means[self.proj_lang]**2)*(torch.sum(hidden_states**2, dim=2))))
