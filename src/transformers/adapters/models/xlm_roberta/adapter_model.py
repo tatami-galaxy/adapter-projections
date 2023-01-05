@@ -38,6 +38,14 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
         self.roberta.encoder.layer[layer_i].output.src_lang = self.src_lang
 
 
+    def activate_csi(self, adapter_name: str, layer_i: int, lang: str): # proj_prob: float):
+        self.roberta.encoder.layer[layer_i].output.csi_flag = True
+        self.roberta.encoder.layer[layer_i].output.task_adapter = adapter_name
+        self.roberta.encoder.layer[layer_i].output.proj_lang = lang
+        #self.roberta.encoder.layer[layer_i].output.proj_prob = proj_prob
+        self.roberta.encoder.layer[layer_i].output.src_lang = self.src_lang
+
+
     def activate_adapter_projection_disjoint(self, adapter_name: str, layer_i: int, lang: str, proj_prob: float):
         self.roberta.encoder.layer[layer_i].output.disjoint_projection_flag = True
         self.roberta.encoder.layer[layer_i].output.task_adapter = adapter_name
@@ -45,6 +53,12 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
         self.roberta.encoder.layer[layer_i].output.disjoint_prob = proj_prob
         self.roberta.encoder.layer[layer_i].output.src_lang = self.src_lang
 
+
+
+    def disable_csi(self):
+        for layer_i in range(self.config.num_hidden_layers):
+            if self.roberta.encoder.layer[layer_i].output.csi_flag:
+                self.roberta.encoder.layer[layer_i].output.csi_flag = False
 
 
     def disable_adapter_projection_stack(self):
@@ -77,12 +91,14 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
         projection_dict = {}
         means_a_dict = {}
         means_b_dict = {}
+        means_langs = {}
 
         for lang in lang_list:
 
             projections = []
             means_a = []
             means_b = []
+            lang_m = []
 
             for layer_i in range(self.config.num_hidden_layers+1):
                 mean_a = np.load(subspace_dir+self.src_lang+'_layer'+str(layer_i)+'_mean.npy') # change for other projections
@@ -95,6 +111,8 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 s = np.load(subspace_dir+lang+'_layer'+str(layer_i)+'_s.npy')
                 vh = np.load(subspace_dir+lang+'_layer'+str(layer_i)+'_vh.npy')
                 subspace_m = np.load(subspace_dir+lang+'_layer'+str(layer_i)+'_mean.npy')
+
+                lang_m.append(subspace_m)
 
                 v = np.transpose(vh) # columns of V form the desired orthonormal basis
 
@@ -118,10 +136,12 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 means_a_dict[lang] = means_a
                 means_b_dict[lang] = means_b
 
-        self.set_adapter_projections(projection_dict, lang_list, means_a_dict, means_b_dict)
+            means_langs[lang] = lang_m
+
+        self.set_adapter_projections(projection_dict, lang_list, means_a_dict, means_b_dict, means_langs)
 
 
-    def set_adapter_projections(self, projection_dict, lang_list, means_a_dict, means_b_dict):
+    def set_adapter_projections(self, projection_dict, lang_list, means_a_dict, means_b_dict, means_langs):
         for lang in lang_list:
             projection, projection_shift = self.compute_projection(projection_dict, means_a_dict, means_b_dict, lang, 0) # 0 for embedding layer projections
             self.roberta.encoder.embedding_projections[lang] = projection #copy.deepcopy(projection)
@@ -133,6 +153,7 @@ class XLMRobertaAdapterModel(RobertaAdapterModel):
                 projection, projection_shift = self.compute_projection(projection_dict, means_a_dict, means_b_dict, lang, layer_i)
                 self.roberta.encoder.layer[layer_i-1].output.projections[lang] = projection
                 self.roberta.encoder.layer[layer_i-1].output.projections_shifts[lang] = projection_shift
+                self.roberta.encoder.layer[layer_i-1].output.lang_means[lang] = torch.from_numpy(means_langs[lang][layer_i])
                 # add shifts here
 
 

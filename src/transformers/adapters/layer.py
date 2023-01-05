@@ -105,9 +105,12 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
         # flags
         self.stack_projection_flag = False
         self.disjoint_projection_flag = False
+        self.csi_flag = False
         # lang
         self.src_lang = None
         self.proj_lang = None
+        # means
+        self.lang_means = {}
         # projections
         self.projections = {}
         self.projections_shifts = {}
@@ -248,6 +251,22 @@ class AdapterLayer(AdapterLayerBase, nn.Module):
                     if random.uniform(0, 1) <= self.proj_prob:  # project with some probability
                         hidden_states = self.project(hidden_states, self.proj_lang)
                         #input_tensor = self.project(input_tensor)
+
+
+                # csi
+                if adapter_stack_layer == self.task_adapter and self.csi_flag:
+                    projection_mask = torch.zeros_like(hidden_states)
+                    cosine_src = torch.einsum('bsi,i->bs', hidden_states, self.lang_means[self.src_lang].float())
+                    cosine_tgt = torch.einsum('bsi,i->bs', hidden_states, self.lang_means[self.proj_lang].float())  
+
+                    cosine_src = cosine_src/(torch.sqrt(torch.sum(self.lang_means[self.src_lang]**2)*(torch.sum(hidden_states**2, dim=2))))
+                    cosine_tgt = cosine_tgt/(torch.sqrt(torch.sum(self.lang_means[self.proj_lang]**2)*(torch.sum(hidden_states**2, dim=2))))
+
+                    projection_mask[cosine_src > cosine_tgt,:] = 1
+                    projected_hidden_states = self.project(hidden_states, self.proj_lang)
+
+                    hidden_states = hidden_states*(1 - projection_mask) + projected_hidden_states*projection_mask
+
 
 
                 # disjoint projection
