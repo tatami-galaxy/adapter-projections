@@ -1,7 +1,7 @@
 
-<h3 align="center">
-A frozen fork of the [Adapter Transformers](https://github.com/adapter-hub/adapter-transformers) containing code for the paper : 'paper link here'
-</h3>
+[//]: # (<h3 align="center">)
+A frozen fork of the [Adapter Transformers](https://github.com/adapter-hub/adapter-transformers) containing code for the paper : paper link here
+[//]: # (</h3>)
 
 
 ## Installation
